@@ -1,0 +1,78 @@
+from flask import Flask, request, send_from_directory, jsonify
+from werkzeug.utils import secure_filename
+import os, uuid, threading, time
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+downloads = {}
+
+def allowed_file(filename): return True
+
+@app.route('/')
+def index():
+    return '''
+<!DOCTYPE html>
+<html><head><title>FileShare</title>
+<style>body{font-family:sans-serif;background:#667eea;padding:50px;text-align:center;}
+.container{background:#fff;padding:50px;border-radius:20px;max-width:500px;margin:auto;box-shadow:0 10px 30px rgba(0,0,0,0.2);}
+button{padding:20px;font-size:18px;background:#10b981;color:white;border:none;border-radius:10px;cursor:pointer;width:100%;margin:20px 0;}
+input[type=file]{display:none;}
+label{display:block;padding:20px;background:#764ba2;color:white;border-radius:10px;cursor:pointer;margin:20px 0;}
+.url{background:#f0f0f0;padding:20px;border-radius:10px;word-break:break-all;font-family:monospace;cursor:pointer;margin:20px 0;}
+.success{color:#10b981;padding:20px;background:#d1fae5;border-radius:10px;margin:20px 0;}
+</style></head><body>
+<div class="container">
+<h1>🚀 FileShare</h1>
+<p>Upload any file → Get instant link</p>
+<input type="file" id="fileInput" accept="*">
+<label for="fileInput">📎 Choose File</label>
+<button onclick="uploadFile()" id="uploadBtn" style="display:none;">Upload</button>
+<div id="result"></div>
+</div>
+<script>
+let fileInput = document.getElementById('fileInput');
+let uploadBtn = document.getElementById('uploadBtn');
+let result = document.getElementById('result');
+fileInput.onchange = () => {
+    if(fileInput.files[0]) {
+        uploadBtn.style.display = 'block';
+        uploadBtn.innerHTML = '🚀 Upload ' + fileInput.files[0].name;
+    }
+};
+async function uploadFile() {
+    let formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    uploadBtn.innerHTML = '⏳ Uploading...';
+    uploadBtn.disabled = true;
+    let res = await fetch('/upload', {method:'POST', body:formData});
+    let data = await res.json();
+    if(data.success) {
+        result.innerHTML = '<div class="success">✅ SUCCESS!<br><div class="url" onclick="navigator.clipboard.writeText(\''+data.url+'\')">'+data.url+'</div><button onclick="navigator.clipboard.writeText(\''+data.url+'\')">📋 Copy Link</button></div>';
+    } else {
+        result.innerHTML = '<div style="color:red;padding:20px;">❌ Error: ' + data.error + '</div>';
+    }
+    uploadBtn.style.display = 'none';
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = '✅ Ready';
+}
+</script></body></html>'''
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    file = request.files['file']
+    if file:
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        return jsonify({'success':True, 'filename':filename, 'url':f'{request.host_url}files/{filename}'})
+    return jsonify({'success':False, 'error':'No file'})
+
+@app.route('/files/<filename>')
+def download(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
